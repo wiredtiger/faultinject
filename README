@@ -1,0 +1,10 @@
+This is a library that allows for fault injection testing by intercepting
+system calls.
+
+It will be configured by setting environment variables.
+
+TODO:
+* Expand support past 'open'
+* Add test code to build infrastructure
+* Implement generic environment variable handling
+* 

@@ -8,9 +8,12 @@
 PACKAGE=faultinject
 
 AC_INIT([faultinject],[01], [http://wiredtiger.com])
+AM_OPTIONS
 AC_CONFIG_SRCDIR([src/faultinject.c])
 AC_CONFIG_AUX_DIR(config)
 AC_CONFIG_MACRO_DIR([m4])
+
+AM_CONDITIONAL([TRACE], [test "$wt_cv_enable_trace" = "yes"])
 
 PANDORA_CANONICAL_TARGET(less-warnings)
 PANDORA_REQUIRE_LIBDL

@@ -77,6 +77,32 @@ def generate_function_definition_content():
 		outargs = param_names_re.findall(match.group('args'))
 		for outarg in outargs:
 			outargs_str = outargs_str + outarg + ', '
+		# Generate code to print out function parameters based on the
+		# argument types.
+		param_prints_str = ''
+		for param in match.group('args').split(','):
+			# Make sure there is a single space between words
+			param = ' '.join(param.strip().replace(
+			    '*', ' * ').split())
+			pname = param.split()[-1]
+			output_type = ''
+			if param.startswith('char *') or	\
+			    param.startswith('const char *'):
+				output_type = 's'
+			elif param.startswith('int') or		\
+			    param.startswith('long'):
+				output_type = 'd'
+			if output_type != '':
+				param_prints_str += '''
+		fprintf(log_fd, "{name}:%{type}, ", {name});'''.format(
+				    name=pname, type=output_type)
+			elif param == '...':
+				param_prints_str += '''
+		fprintf(log_fd, "...");'''
+			else:
+				param_prints_str += '''
+		fprintf(log_fd, "{name}:{type}, ");'''.format(
+				    name=pname, type=param.rsplit(' ', 1)[0])
 		# Trim our trailing comma
 		outargs_str = outargs_str[:-2]
 		open_vararg_str = ''
@@ -110,16 +136,33 @@ def generate_function_definition_content():
 {ret} FAULT_INJECT_API {name}({args})
 {{
 	int ret;
+	FILE *log_fd;
+
 {open_vararg}
+#ifdef HAVE_TRACE
+	if (faultinject_trace_operation()) {{
+		/* Log the operation */
+		log_fd = fopen("/tmp/faultinject_{name}.log", "a");
+		if (log_fd != NULL) {{
+			fprintf(log_fd, "Intercepted call to: {name}(");
+			{param_prints}
+			fprintf(log_fd, ");\\n");
+			fclose(log_fd);
+		}}
+	}}
+#else
+	log_fd = NULL; log_fd = log_fd;
+#endif
 	if ((ret = faultinject_fail_operation()) != 0) {{
 		errno = ret;
-		return (ret);
+		return (-1);
 	}}
 	return (*libc_{name})({outargs});
 }}
 		'''.format(name=match.group('name'),
 		    ret=match.group('ret_type'),
 		    open_vararg=open_vararg_str,
+		    param_prints=param_prints_str,
 		    outargs=outargs_str,
 		    args=match.group('args'))
 		content += new_def
