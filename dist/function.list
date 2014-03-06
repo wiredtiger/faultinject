@@ -1,0 +1,2 @@
+int open(const char *pathname, int oflag,...);
+int open64(const char *pathname, int oflag,...);
