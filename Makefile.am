@@ -2,6 +2,8 @@
 # faultinject
 #
 
+AM_CPPFLAGS = -I.
+
 bin_PROGRAMS =
 check_PROGRAMS =
 noinst_PROGRAMS =
@@ -27,11 +29,6 @@ faultinject: faultinject.in Makefile
 
 faultinject.sh: faultinject.sh.in Makefile
 	$(do_subst) $(srcdir)/faultinject.sh.in > $@
-
-#
-# faultinject
-#
-#
 
 lib_LTLIBRARIES += libfaultinject.la
 

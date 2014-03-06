@@ -55,7 +55,7 @@ def generate_constructor_assignment_content():
 		if not match:
 			continue;
 		new_def = '''
-	libc_{name} = (libc_{name}_t)(intptr_t)dlsym(RTLD_NEXT, {name});
+	libc_{name} = (libc_{name}_t)(intptr_t)dlsym(RTLD_NEXT, "{name}");
 	if (libc_{name} == NULL || dlerror())
 		_exit(1);
 '''.format(name=match.group('name'))
@@ -89,7 +89,7 @@ def generate_function_definition_content():
 	va_list ap;
 	mode_t mode;
 
-	va_start(ap, flags);
+	va_start(ap, oflag);
 #if SIZEOF_MODE_T < SIZEOF_INT
 	mode = (mode_t)va_arg(ap, int);
 #else
@@ -115,7 +115,7 @@ def generate_function_definition_content():
 		errno = ret;
 		return (ret);
 	}}
-	return (*libc_{name}({outargs}));
+	return (*libc_{name})({outargs});
 }}
 		'''.format(name=match.group('name'),
 		    ret=match.group('ret_type'),

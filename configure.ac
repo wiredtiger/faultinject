@@ -8,7 +8,7 @@
 PACKAGE=faultinject
 
 AC_INIT([faultinject],[01], [http://wiredtiger.com])
-AC_CONFIG_SRCDIR([src])
+AC_CONFIG_SRCDIR([src/faultinject.c])
 AC_CONFIG_AUX_DIR(config)
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -24,5 +24,4 @@ AC_CHECK_DECLS(open64)
 AC_CHECK_FUNCS(open64)
 
 AC_CONFIG_FILES(Makefile docs/index.html)
-
-
+AC_OUTPUT

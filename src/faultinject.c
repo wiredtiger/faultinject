@@ -1,10 +1,17 @@
 
 /* Do not edit. Automatically generated from content in faultinject.c.in */
 
+#include "config.h"
+
 #undef _FILE_OFFSET_BITS
 #undef __USE_FILE_OFFSET64
+#undef _GNU_SOURCE
+#define _GNU_SOURCE
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
+#include <stdarg.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -29,11 +36,11 @@ void __attribute__ ((constructor)) faultinject_constructor(void);
 void __attribute__ ((constructor)) faultinject_constructor(void)
 {
 
-	libc_open = (libc_open_t)(intptr_t)dlsym(RTLD_NEXT, open);
+	libc_open = (libc_open_t)(intptr_t)dlsym(RTLD_NEXT, "open");
 	if (libc_open == NULL || dlerror())
 		_exit(1);
 
-	libc_open64 = (libc_open64_t)(intptr_t)dlsym(RTLD_NEXT, open64);
+	libc_open64 = (libc_open64_t)(intptr_t)dlsym(RTLD_NEXT, "open64");
 	if (libc_open64 == NULL || dlerror())
 		_exit(1);
 }
@@ -54,7 +61,7 @@ int FAULT_INJECT_API open(const char *pathname, int oflag,...)
 	va_list ap;
 	mode_t mode;
 
-	va_start(ap, flags);
+	va_start(ap, oflag);
 #if SIZEOF_MODE_T < SIZEOF_INT
 	mode = (mode_t)va_arg(ap, int);
 #else
@@ -75,7 +82,7 @@ int FAULT_INJECT_API open(const char *pathname, int oflag,...)
 		errno = ret;
 		return (ret);
 	}
-	return (*libc_open(pathname, oflag, mode));
+	return (*libc_open)(pathname, oflag, mode);
 }
 		
 int FAULT_INJECT_API open64(const char *pathname, int oflag,...)
@@ -85,7 +92,7 @@ int FAULT_INJECT_API open64(const char *pathname, int oflag,...)
 	va_list ap;
 	mode_t mode;
 
-	va_start(ap, flags);
+	va_start(ap, oflag);
 #if SIZEOF_MODE_T < SIZEOF_INT
 	mode = (mode_t)va_arg(ap, int);
 #else
@@ -106,6 +113,6 @@ int FAULT_INJECT_API open64(const char *pathname, int oflag,...)
 		errno = ret;
 		return (ret);
 	}
-	return (*libc_open64(pathname, oflag, mode));
+	return (*libc_open64)(pathname, oflag, mode);
 }
 		
