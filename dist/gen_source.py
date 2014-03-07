@@ -162,12 +162,12 @@ FAULT_INJECT_API {ret} {name}({args})
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {{
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_{name}.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_{name}.log", "a");
 		if (log_fd != NULL) {{
 			fprintf(log_fd, "Intercepted call to: {name}(");
 			{param_prints}
 			fprintf(log_fd, ");\\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}}
 	}}
 #else

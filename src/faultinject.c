@@ -28,8 +28,10 @@
  */
 typedef int  (*libc_close_t)(int fd);
 typedef int  (*libc_closedir_t)(DIR *dirp);
+typedef int  (*libc_fclose_t)(FILE *fp);
 typedef int  (*libc_fsync_t)(int fd);
 typedef int  (*libc_fdatasync_t)(int fd);
+typedef FILE * (*libc_fopen_t)(const char *path, const char *mode);
 typedef int  (*libc_truncate_t)(const char *path, off_t length);
 typedef int  (*libc_ftruncate_t)(int fd, off_t length);
 typedef void * (*libc_mmap_t)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
@@ -45,8 +47,10 @@ typedef int  (*libc_rename_t)(const char *oldpath, const char *newpath);
 
 static libc_close_t libc_close = NULL;
 static libc_closedir_t libc_closedir = NULL;
+static libc_fclose_t libc_fclose = NULL;
 static libc_fsync_t libc_fsync = NULL;
 static libc_fdatasync_t libc_fdatasync = NULL;
+static libc_fopen_t libc_fopen = NULL;
 static libc_truncate_t libc_truncate = NULL;
 static libc_ftruncate_t libc_ftruncate = NULL;
 static libc_mmap_t libc_mmap = NULL;
@@ -86,6 +90,12 @@ void __attribute__ ((constructor)) faultinject_constructor(void)
 		_exit(1);
 	}
 
+	libc_fclose = (libc_fclose_t)(intptr_t)dlsym(RTLD_NEXT, "fclose");
+	if (libc_fclose == NULL || dlerror()) {
+		fprintf(stderr, "Error initializing fclose\n");
+		_exit(1);
+	}
+
 	libc_fsync = (libc_fsync_t)(intptr_t)dlsym(RTLD_NEXT, "fsync");
 	if (libc_fsync == NULL || dlerror()) {
 		fprintf(stderr, "Error initializing fsync\n");
@@ -95,6 +105,12 @@ void __attribute__ ((constructor)) faultinject_constructor(void)
 	libc_fdatasync = (libc_fdatasync_t)(intptr_t)dlsym(RTLD_NEXT, "fdatasync");
 	if (libc_fdatasync == NULL || dlerror()) {
 		fprintf(stderr, "Error initializing fdatasync\n");
+		_exit(1);
+	}
+
+	libc_fopen = (libc_fopen_t)(intptr_t)dlsym(RTLD_NEXT, "fopen");
+	if (libc_fopen == NULL || dlerror()) {
+		fprintf(stderr, "Error initializing fopen\n");
 		_exit(1);
 	}
 
@@ -188,9 +204,10 @@ static int faultinject_fail_operation(void)
 		faultinject_constructor();
 
 
-	printf("failing with op count: %d\n", (int)g_op_count);
-	if (g_max_op_count > 0 && ++g_op_count > g_max_op_count)
+	if (g_max_op_count > 0 && ++g_op_count > g_max_op_count) {
+		printf("failing with op count: %d\n", (int)g_op_count);
 		return (EFAULT);
+	}
 	return (0);
 }
 
@@ -212,13 +229,13 @@ FAULT_INJECT_API int  close(int fd)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_close.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_close.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: close(");
 			
 		fprintf(log_fd, "fd:%d, ", fd);
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -240,13 +257,13 @@ FAULT_INJECT_API int  closedir(DIR *dirp)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_closedir.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_closedir.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: closedir(");
 			
 		fprintf(log_fd, "dirp:DIR *, ");
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -259,6 +276,34 @@ FAULT_INJECT_API int  closedir(DIR *dirp)
 	return (*libc_closedir)(dirp);
 }
 		
+FAULT_INJECT_API int  fclose(FILE *fp)
+{
+	int ret;
+	FILE *log_fd;
+
+
+#ifdef HAVE_TRACE
+	if (faultinject_trace_operation()) {
+		/* Log the operation */
+		log_fd = (*libc_fopen)("/tmp/faultinject_fclose.log", "a");
+		if (log_fd != NULL) {
+			fprintf(log_fd, "Intercepted call to: fclose(");
+			
+		fprintf(log_fd, "fp:FILE *, ");
+			fprintf(log_fd, ");\n");
+			(*libc_fclose)(log_fd);
+		}
+	}
+#else
+	log_fd = NULL; log_fd = log_fd;
+#endif
+	if ((ret = faultinject_fail_operation()) != 0) {
+		errno = ret;
+		return (-1);
+	}
+	return (*libc_fclose)(fp);
+}
+		
 FAULT_INJECT_API int  fsync(int fd)
 {
 	int ret;
@@ -268,13 +313,13 @@ FAULT_INJECT_API int  fsync(int fd)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_fsync.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_fsync.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: fsync(");
 			
 		fprintf(log_fd, "fd:%d, ", fd);
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -296,13 +341,13 @@ FAULT_INJECT_API int  fdatasync(int fd)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_fdatasync.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_fdatasync.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: fdatasync(");
 			
 		fprintf(log_fd, "fd:%d, ", fd);
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -315,6 +360,35 @@ FAULT_INJECT_API int  fdatasync(int fd)
 	return (*libc_fdatasync)(fd);
 }
 		
+FAULT_INJECT_API FILE * fopen(const char *path, const char *mode)
+{
+	int ret;
+	FILE *log_fd;
+
+
+#ifdef HAVE_TRACE
+	if (faultinject_trace_operation()) {
+		/* Log the operation */
+		log_fd = (*libc_fopen)("/tmp/faultinject_fopen.log", "a");
+		if (log_fd != NULL) {
+			fprintf(log_fd, "Intercepted call to: fopen(");
+			
+		fprintf(log_fd, "path:%s, ", path);
+		fprintf(log_fd, "mode:%s, ", mode);
+			fprintf(log_fd, ");\n");
+			(*libc_fclose)(log_fd);
+		}
+	}
+#else
+	log_fd = NULL; log_fd = log_fd;
+#endif
+	if ((ret = faultinject_fail_operation()) != 0) {
+		errno = ret;
+		return (NULL);
+	}
+	return (*libc_fopen)(path, mode);
+}
+		
 FAULT_INJECT_API int  truncate(const char *path, off_t length)
 {
 	int ret;
@@ -324,14 +398,14 @@ FAULT_INJECT_API int  truncate(const char *path, off_t length)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_truncate.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_truncate.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: truncate(");
 			
 		fprintf(log_fd, "path:%s, ", path);
 		fprintf(log_fd, "length:off_t, ");
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -353,14 +427,14 @@ FAULT_INJECT_API int  ftruncate(int fd, off_t length)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_ftruncate.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_ftruncate.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: ftruncate(");
 			
 		fprintf(log_fd, "fd:%d, ", fd);
 		fprintf(log_fd, "length:off_t, ");
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -382,7 +456,7 @@ FAULT_INJECT_API void * mmap(void *addr, size_t length, int prot, int flags, int
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_mmap.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_mmap.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: mmap(");
 			
@@ -393,7 +467,7 @@ FAULT_INJECT_API void * mmap(void *addr, size_t length, int prot, int flags, int
 		fprintf(log_fd, "fd:%d, ", fd);
 		fprintf(log_fd, "offset:off_t, ");
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -415,14 +489,14 @@ FAULT_INJECT_API int  munmap(void *addr, size_t length)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_munmap.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_munmap.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: munmap(");
 			
 		fprintf(log_fd, "addr:void *, ");
 		fprintf(log_fd, "length:size_t, ");
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -464,7 +538,7 @@ FAULT_INJECT_API int  open(const char *pathname, int oflag,...)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_open.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_open.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: open(");
 			
@@ -472,7 +546,7 @@ FAULT_INJECT_API int  open(const char *pathname, int oflag,...)
 		fprintf(log_fd, "oflag:%d, ", oflag);
 		fprintf(log_fd, "...");
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -514,7 +588,7 @@ FAULT_INJECT_API int  open64(const char *pathname, int oflag,...)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_open64.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_open64.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: open64(");
 			
@@ -522,7 +596,7 @@ FAULT_INJECT_API int  open64(const char *pathname, int oflag,...)
 		fprintf(log_fd, "oflag:%d, ", oflag);
 		fprintf(log_fd, "...");
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -544,13 +618,13 @@ FAULT_INJECT_API DIR * opendir(const char *name)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_opendir.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_opendir.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: opendir(");
 			
 		fprintf(log_fd, "name:%s, ", name);
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -572,7 +646,7 @@ FAULT_INJECT_API ssize_t  pread(int fd, void *buf, size_t count, off_t offset)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_pread.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_pread.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: pread(");
 			
@@ -581,7 +655,7 @@ FAULT_INJECT_API ssize_t  pread(int fd, void *buf, size_t count, off_t offset)
 		fprintf(log_fd, "count:size_t, ");
 		fprintf(log_fd, "offset:off_t, ");
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -603,7 +677,7 @@ FAULT_INJECT_API ssize_t  pwrite(int fd, const void *buf, size_t count, off_t of
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_pwrite.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_pwrite.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: pwrite(");
 			
@@ -612,7 +686,7 @@ FAULT_INJECT_API ssize_t  pwrite(int fd, const void *buf, size_t count, off_t of
 		fprintf(log_fd, "count:size_t, ");
 		fprintf(log_fd, "offset:off_t, ");
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -634,13 +708,13 @@ FAULT_INJECT_API struct dirent * readdir(DIR *dirp)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_readdir.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_readdir.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: readdir(");
 			
 		fprintf(log_fd, "dirp:DIR *, ");
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -662,13 +736,13 @@ FAULT_INJECT_API int  remove(const char *pathname)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_remove.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_remove.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: remove(");
 			
 		fprintf(log_fd, "pathname:%s, ", pathname);
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else
@@ -690,14 +764,14 @@ FAULT_INJECT_API int  rename(const char *oldpath, const char *newpath)
 #ifdef HAVE_TRACE
 	if (faultinject_trace_operation()) {
 		/* Log the operation */
-		log_fd = fopen("/tmp/faultinject_rename.log", "a");
+		log_fd = (*libc_fopen)("/tmp/faultinject_rename.log", "a");
 		if (log_fd != NULL) {
 			fprintf(log_fd, "Intercepted call to: rename(");
 			
 		fprintf(log_fd, "oldpath:%s, ", oldpath);
 		fprintf(log_fd, "newpath:%s, ", newpath);
 			fprintf(log_fd, ");\n");
-			fclose(log_fd);
+			(*libc_fclose)(log_fd);
 		}
 	}
 #else

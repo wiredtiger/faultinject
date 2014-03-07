@@ -3,8 +3,10 @@
 # Python - wrap the function name in brackets.
 int (close)(int fd);
 int (closedir)(DIR *dirp);
+int (fclose)(FILE *fp);
 int (fsync)(int fd);
 int (fdatasync)(int fd);
+FILE *(fopen)(const char *path, const char *mode);
 int (truncate)(const char *path, off_t length);
 int (ftruncate)(int fd, off_t length);
 void *(mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);

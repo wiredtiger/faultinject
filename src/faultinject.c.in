@@ -62,9 +62,10 @@ static int faultinject_fail_operation(void)
 
 @OPERATION_CHECK@
 
-	printf("failing with op count: %d\n", (int)g_op_count);
-	if (g_max_op_count > 0 && ++g_op_count > g_max_op_count)
+	if (g_max_op_count > 0 && ++g_op_count > g_max_op_count) {
+		printf("failing with op count: %d\n", (int)g_op_count);
 		return (EFAULT);
+	}
 	return (0);
 }
 
