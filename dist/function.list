@@ -1,2 +1,9 @@
-int open(const char *pathname, int oflag,...);
-int open64(const char *pathname, int oflag,...);
+# A list of functions to be included in fault injection library.
+# The format is slightly odd here to help with parsing the content in
+# Python - wrap the function name in brackets.
+int (closedir)(DIR *dirp);
+int (open)(const char *pathname, int oflag,...);
+int (open64)(const char *pathname, int oflag,...);
+DIR *(opendir)(const char *name);
+struct dirent *(readdir)(DIR *dirp);
+#int (stat)(const char *path, struct stat *buf);

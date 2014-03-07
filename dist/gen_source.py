@@ -4,12 +4,14 @@
 
 import filecmp, os, re, shutil, sys, textwrap
 
-input_file_name='../src/faultinject.c.in'
-tmp_file_name='__t'
-output_file_name='../src/faultinject.c'
+verbose = 1
+
+input_file_name = '../src/faultinject.c.in'
+tmp_file_name = '__t'
+output_file_name = '../src/faultinject.c'
 
 replace_symbols_re = re.compile(r'(.*)@(.*)@(.*)')
-func_def_parts_re = re.compile(r'(?P<ret_type>\w+) (?P<name>\w+)\((?P<args>[^)]*)')
+func_def_parts_re = re.compile(r'(?P<ret_type>.+)\((?P<name>\w+)\)\((?P<args>[^)]*)')
 param_names_re = re.compile(r'(\w+)(?:,|$)')
 
 # compare_srcfile --
@@ -21,13 +23,33 @@ def compare_srcfile(tmp, src):
 		shutil.copyfile(tmp, src)
 	os.remove(tmp)
 
+def get_func_list():
+	# Get the list of functions being overridden.
+	func_list_file = open('function.list', 'r')
+	func_list = list(func_list_file)
+	func_list_file.close()
+
+	# Clean up the function list.
+	func_list = [k for k in func_list if not k.startswith('#')]
+	func_list2 = []
+	for func_def in func_list:
+		match = func_def_parts_re.match(func_def)
+		if not match:
+			sys.stderr.write("Skipping un-parseable function: " + func_def)
+		else:
+			if verbose > 1:
+				print 'func def: {0} ret: {1}, name: {2}, args: {3}'. \
+				    format( func_def,		\
+				    match.group('ret_type'),	\
+				    match.group('name'),	\
+				    match.group('args') )
+			func_list2.append(func_def)
+	return func_list2
+
 def generate_typedef_content():
 	content = ''
 	for func_def in func_list:
 		match = func_def_parts_re.match(func_def)
-		# Ignore comments in the function definition file
-		if not match:
-			continue;
 		new_def = 'typedef {ret} (*libc_{name}_t)({args});\n'.format(
 		    ret=match.group('ret_type'), \
 		    name=match.group('name'), \
@@ -39,9 +61,6 @@ def generate_function_declaration_content():
 	content = ''
 	for func_def in func_list:
 		match = func_def_parts_re.match(func_def)
-		# Ignore comments in the function definition file
-		if not match:
-			continue;
 		new_def = 'static libc_{name}_t libc_{name} = NULL;\n'.format(
 		    name=match.group('name'))
 		content = content + new_def
@@ -51,13 +70,12 @@ def generate_constructor_assignment_content():
 	content = ''
 	for func_def in func_list:
 		match = func_def_parts_re.match(func_def)
-		# Ignore comments in the function definition file
-		if not match:
-			continue;
 		new_def = '''
 	libc_{name} = (libc_{name}_t)(intptr_t)dlsym(RTLD_NEXT, "{name}");
-	if (libc_{name} == NULL || dlerror())
+	if (libc_{name} == NULL || dlerror()) {{
+		fprintf(stderr, "Error initializing {name}\\n");
 		_exit(1);
+	}}
 '''.format(name=match.group('name'))
 		content = content + new_def
 	return content
@@ -70,9 +88,6 @@ def generate_function_definition_content():
 	content = ''
 	for func_def in func_list:
 		match = func_def_parts_re.match(func_def)
-		# Ignore comments in the function definition file
-		if not match:
-			continue;
 		outargs_str = ''
 		outargs = param_names_re.findall(match.group('args'))
 		for outarg in outargs:
@@ -106,9 +121,14 @@ def generate_function_definition_content():
 		# Trim our trailing comma
 		outargs_str = outargs_str[:-2]
 		open_vararg_str = ''
+		# Get error return values right - return NULL for functions that
+		# return a pointer else EFAULT
+		ret_value = 'NULL'
+		if match.group('ret_type').find('*') == -1:
+			ret_value = '-1'
 		# open functions have an optional mode parameter. Deal with
 		# that here.
-		if 'open' in match.group('name'):
+		if match.group('name') == 'open' or match.group('name') == 'open64':
 			# Add in the mode parameter to the outarg list.
 			outargs_str += ', mode'
 			open_vararg_str = '''
@@ -129,11 +149,11 @@ def generate_function_definition_content():
 	 */
 	if (!libc_{name}) {{
 		errno = EFAULT;
-		return (-1);
+		return ({retval});
 	}}
-'''.format(name=match.group('name'))
+'''.format(name=match.group('name'), retval=ret_value)
 		new_def = '''
-{ret} FAULT_INJECT_API {name}({args})
+FAULT_INJECT_API {ret} {name}({args})
 {{
 	int ret;
 	FILE *log_fd;
@@ -155,7 +175,7 @@ def generate_function_definition_content():
 #endif
 	if ((ret = faultinject_fail_operation()) != 0) {{
 		errno = ret;
-		return (-1);
+		return ({retval});
 	}}
 	return (*libc_{name})({outargs});
 }}
@@ -163,6 +183,7 @@ def generate_function_definition_content():
 		    ret=match.group('ret_type'),
 		    open_vararg=open_vararg_str,
 		    param_prints=param_prints_str,
+		    retval=ret_value,
 		    outargs=outargs_str,
 		    args=match.group('args'))
 		content += new_def
@@ -186,10 +207,8 @@ def generate_output(match):
 
 	return content_string
 
-# Get the list of functions being overridden.
-func_list_file = open('function.list', 'r')
-func_list = list(func_list_file)
-func_list_file.close()
+
+func_list = get_func_list()
 
 tmp_file = open(tmp_file_name, 'w')
 
