@@ -1,5 +1,6 @@
 Makefile
 Makefile.in
+.libs/
 aclocal.m4
 autom4te.cache
 config.log
@@ -15,6 +16,7 @@ config/pandora_vc_revinfo
 config/test-driver
 config/top.h
 configure
+docs/index.html
 faultinject
 faultinject.sh
 libfaultinject.la
