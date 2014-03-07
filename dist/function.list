@@ -1,9 +1,22 @@
 # A list of functions to be included in fault injection library.
 # The format is slightly odd here to help with parsing the content in
 # Python - wrap the function name in brackets.
+int (close)(int fd);
 int (closedir)(DIR *dirp);
+int (fsync)(int fd);
+int (fdatasync)(int fd);
+int (truncate)(const char *path, off_t length);
+int (ftruncate)(int fd, off_t length);
+void *(mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+int (munmap)(void *addr, size_t length);
 int (open)(const char *pathname, int oflag,...);
 int (open64)(const char *pathname, int oflag,...);
 DIR *(opendir)(const char *name);
+ssize_t (pread)(int fd, void *buf, size_t count, off_t offset);
+ssize_t (pwrite)(int fd, const void *buf, size_t count, off_t offset);
 struct dirent *(readdir)(DIR *dirp);
+int (remove)(const char *pathname);
+int (rename)(const char *oldpath, const char *newpath);
+# stat is odd - see:
+# http://linux.die.net/man/2/stat at "Underlying kernel interface"
 #int (stat)(const char *path, struct stat *buf);
