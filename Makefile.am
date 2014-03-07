@@ -11,8 +11,8 @@ lib_LTLIBRARIES =
 noinst_LTLIBRARIES =
 nobase_include_HEADERS =
 noinst_HEADERS =
-CLEANFILES =
-DISTCLEANFILES =
+CLEANFILES = $(bin_SCRIPTS) $(libexec_SCRIPTS)
+DISTCLEANFILES = config/top.h
 EXTRA_DIST = \
   docs/index.html
 
@@ -42,4 +42,12 @@ libfaultinject_la_CFLAGS = \
 
 libfaultinject_la_LIBADD = $(LIBDL_LIBS) -lpthread
 libfaultinject_la_LDFLAGS = $(AM_LDFLAGS) -avoid-version
+
+check_PROGRAMS += \
+	test/basic
+
+AUTOMAKE_OPTIONS = parallel-tests
+TESTS = $(check_PROGRAMS)
+
+LOG_COMPILER = ${top_srcdir}/test_run.sh
 

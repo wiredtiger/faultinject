@@ -76,11 +76,13 @@ static int faultinject_fail_operation(void)
 	return (0);
 }
 
+#ifdef HAVE_TRACE
 /* We may want to make this conditional at runtime. */
 static int faultinject_trace_operation(void)
 {
 	return (1);
 }
+#endif
 
 
 int FAULT_INJECT_API open(const char *pathname, int oflag,...)

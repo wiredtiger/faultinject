@@ -4,10 +4,14 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <unistd.h>
 
-void main(int argc, char **argv)
+int main(int argc, char **argv)
 {
 	int test_fd;
+
+	(void)argc;
+	(void)argv;
 	printf("Basic tester for faultinject DLL.\n");
 
 	test_fd = open("/tmp/fault_inject_tester.txt", O_CREAT | O_WRONLY);
@@ -28,4 +32,5 @@ void main(int argc, char **argv)
 	else
 		printf("opened file\n");
 	close(test_fd);
+	return (0);
 }

@@ -15,7 +15,7 @@ AC_CONFIG_MACRO_DIR([m4])
 
 AM_CONDITIONAL([TRACE], [test "$wt_cv_enable_trace" = "yes"])
 
-PANDORA_CANONICAL_TARGET(less-warnings)
+PANDORA_CANONICAL_TARGET(warnings-always-on)
 PANDORA_REQUIRE_LIBDL
 
 AC_CHECK_SIZEOF(mode_t)
