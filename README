@@ -4,5 +4,16 @@ system calls.
 It will be configured by setting environment variables.
 
 TODO:
-* Expand support past 'open'
+* Add python generator script to makefile
 * Implement generic environment variable handling
+
+* It is not obvious how to make this work without LD_PRELOAD. LD_PRELOAD
+  causes difficulties if you only want to intercept (or alter) calls that come
+  via one of several libraries. For example if using WiredTiger via the Python
+  API, it isn't desirable to alter the behavior of the Python functions.
+  It is possible to build WiredTiger against faultinject and have faultinject
+  load when WiredTiger is dynamically loaded into Python, but by then the
+  symbols aren't overridden. It may be possible to forcibly overide the
+  symbols in the faultinject static initializer - but I suspect that would also
+  override them for the Python executable as well.
+
