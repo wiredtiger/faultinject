@@ -17,3 +17,26 @@ TODO:
   symbols in the faultinject static initializer - but I suspect that would also
   override them for the Python executable as well.
 
+
+To run a WiredTiger python test case with the faultinject library, the following
+is a good starting template:
+
+rm -rf ./res && mkdir -p ./res
+for i in $(seq 1 100);
+do
+	env FAULTINJECT_FAIL_COUNT=$i FAULTINJECT_LIBRARY_NAME=__wt LD_LIBRARY_PATH=.libs LD_PRELOAD=~/work/faultinject/faultinject/.libs/libfaultinject.so PYTHONPATH=../lang/python:lang/python:../test/suite timeout python ../test/suite/run.py -v 2 test_cursor01 > res/t$i.out 2>&1
+done
+
+A description of the components of the above command:
+
+FAULTINJECT_FAIL_COUNT -
+   The number of operations to pass to the default implementation prior to failing
+   subsequent operations.
+FAULTINJECT_LIBRARY_NAME -
+    A string that is used to filter out callers we are interested in. Must be
+    present in the call stack of callers we want, and not in those we don't.
+LD_PRELOAD -
+    The faultinject library to be used during the execution
+timeout -
+    Some WiredTiger operations will go into infinite loops if operations
+    continually fail. Use this to send kill signals to those processes.
