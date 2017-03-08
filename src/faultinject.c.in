@@ -100,7 +100,7 @@ static int faultinject_caller_interesting(void)
 	void *stack_buf[10]; /* Only search up to ten stacks deep */
 
 	if (g_library_trace_substring == NULL)
-		return (0);
+		return (1);
 
 	if ((num_stacks = backtrace(&stack_buf[0], 10)) == 0)
 		return (0);

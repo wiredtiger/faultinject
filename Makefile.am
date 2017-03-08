@@ -3,6 +3,7 @@
 #
 
 AM_CPPFLAGS = -I.
+ACLOCAL_AMFLAGS = -Im4
 
 bin_PROGRAMS =
 check_PROGRAMS =
