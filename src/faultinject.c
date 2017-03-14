@@ -11,6 +11,11 @@
 #include <errno.h>
 #include <execinfo.h>
 #include <fcntl.h>
+
+/* Need to tell libunwind to provide local only functionality */
+#define UNW_LOCAL_ONLY
+#include <libunwind.h>
+
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -649,27 +654,54 @@ static int faultinject_trace_operation(void)
 
 static int faultinject_caller_interesting(void)
 {
-	char **stack_symbols;
-	int found, i, num_stacks;
-	void *stack_buf[10]; /* Only search up to ten stacks deep */
+	unw_context_t uc;
+	unw_cursor_t cursor;
+	unw_word_t offp;
+	char fn_name[256];
+	int count = 10; /* Check a max depth of 10 callers */
 
-	if (g_library_trace_substring == NULL)
-		return (1);
+	/* 
+	 * Ugly hack to avoid fall injecting recursively till this function
+	 * exits
+	 */
+	static int in_fi = 0;
+	int ret = 0;
 
-	if ((num_stacks = backtrace(&stack_buf[0], 10)) == 0)
+	/* If recursively called through this function, just exit now */
+	if (in_fi == 1)
 		return (0);
+	in_fi = 1;
 
-	if ((stack_symbols = backtrace_symbols(&stack_buf[0], num_stacks)) == NULL)
-		return (0);
-
-	for (i = 0, found = 0; i < num_stacks; i++) {
-		if (strstr(stack_symbols[i], g_library_trace_substring) != NULL) {
-			found = 1;
-			break;
-		}
+	if (g_library_trace_substring == NULL) {
+		ret = 1;
+		goto end;
 	}
-	free(stack_symbols);
-	return (found);
+
+	if (0 != unw_getcontext(&uc)) {
+		ret = 0;
+		goto end;
+	}
+
+	if (0 != unw_init_local(&cursor, &uc)) {
+		ret = 0;
+		goto end;
+	}
+
+	while (unw_step(&cursor) > 0 && count > 0) {
+		fn_name[0] = '\0';
+		if (0 == unw_get_proc_name(&cursor, fn_name, 256, &offp) &&
+		    0 != strlen(fn_name)) {
+			if (strstr(fn_name, g_library_trace_substring) != NULL) {
+				ret = 1;
+				goto end;
+			}
+		}
+		count--;
+	}
+
+end:
+	in_fi = 0;
+	return (ret);
 }
 
 

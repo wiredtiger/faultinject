@@ -41,7 +41,7 @@ libfaultinject_la_CFLAGS = \
   $(NO_WERROR) \
 	-DBUILDING_FAULTINJECT
 
-libfaultinject_la_LIBADD = $(LIBDL_LIBS) -lpthread
+libfaultinject_la_LIBADD = $(LIBDL_LIBS) -lpthread -lunwind
 libfaultinject_la_LDFLAGS = $(AM_LDFLAGS) -avoid-version
 
 check_PROGRAMS += \
