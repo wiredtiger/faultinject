@@ -654,39 +654,31 @@ static int faultinject_trace_operation(void)
 
 static int faultinject_caller_interesting(void)
 {
-	unw_context_t uc;
 	unw_cursor_t cursor;
+	unw_context_t uc;
 	unw_word_t offp;
 	char fn_name[256];
-	int count = 10; /* Check a max depth of 10 callers */
+	int count, ret;
 
-	/* 
-	 * Ugly hack to avoid fall injecting recursively till this function
-	 * exits
-	 */
-	static int in_fi = 0;
-	int ret = 0;
-
-	/* If recursively called through this function, just exit now */
-	if (in_fi == 1)
+	/* Avoid fall-injecting recursively inside this particular function */
+	static int in_fi_func = 0;
+	if (in_fi_func == 1)
 		return (0);
-	in_fi = 1;
+	in_fi_func = 1;
 
+	ret = 0;
 	if (g_library_trace_substring == NULL) {
 		ret = 1;
 		goto end;
 	}
 
-	if (0 != unw_getcontext(&uc)) {
-		ret = 0;
+	if (0 != unw_getcontext(&uc))
 		goto end;
-	}
 
-	if (0 != unw_init_local(&cursor, &uc)) {
-		ret = 0;
+	if (0 != unw_init_local(&cursor, &uc))
 		goto end;
-	}
 
+	count = 10;	/* Check a max depth of 10 callers */
 	while (unw_step(&cursor) > 0 && count > 0) {
 		fn_name[0] = '\0';
 		if (0 == unw_get_proc_name(&cursor, fn_name, 256, &offp) &&
@@ -700,7 +692,7 @@ static int faultinject_caller_interesting(void)
 	}
 
 end:
-	in_fi = 0;
+	in_fi_func = 0;
 	return (ret);
 }
 

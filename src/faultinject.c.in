@@ -142,4 +142,4 @@ end:
 	return (ret);
 }
 
-FUNCTION_DEFINITIONS@
+@FUNCTION_DEFINITIONS@
