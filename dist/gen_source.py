@@ -123,6 +123,7 @@ def generate_operation_check_content():
 #ifdef HAVE_TRACE
 		printf("failing {name} with op count: %d\\n", (int)g_{name}_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}}'''.format(name=match.group('name'))
         content += new_config
@@ -172,6 +173,9 @@ def generate_function_definition_content():
         ret_value = 'NULL'
         if match.group('ret_type').find('*') == -1:
             ret_value = '-1'
+        # mmap returns ((void *)-1) on failure
+        if match.group('name') == 'mmap':
+            ret_value = '(void *)-1'
         # open functions have an optional mode parameter. Deal with
         # that here.
         if match.group('name') == 'open' or match.group('name') == 'open64':
@@ -203,13 +207,17 @@ FAULT_INJECT_API {ret} {name}({args})
 {{
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 {open_vararg}
     if (faultinject_caller_interesting()) {{
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {{
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_{name}.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_{name}.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {{
                     fprintf(log_fd, "Intercepted call to: {name}(");
                     {param_prints}

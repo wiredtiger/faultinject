@@ -35,8 +35,20 @@
 @FUNCTION_DECLARATIONS@
 
 static char *g_library_trace_substring = NULL;
+static char *g_library_trace_tmpdir = NULL;
+
 static uint64_t g_op_count = 0;
 static uint64_t g_max_op_count = 0;
+static pid_t g_trace_pid = 0;
+
+static char g_backtrace_info[10][256];
+/*
+ * points to the index where last valid backtrace function with valid tracing
+ * substring is identified
+ */
+static int g_backtrace_counter;
+
+static void dump_backtrace(void);
 
 @GLOBAL_CONFIG_DECLARATIONS@
 
@@ -60,7 +72,9 @@ void __attribute__ ((constructor)) faultinject_constructor(void)
 	    strlen(env_string) != 0) {
 		g_library_trace_substring = env_string;
 	}
-
+	if ((env_string = getenv("FAULTINJECT_TMP_DIR")) != NULL &&
+	    strlen(env_string) != 0) {
+		g_library_trace_tmpdir = env_string; }
 	if ((env_string = getenv("FAULTINJECT_FAIL_COUNT")) != NULL &&
 	    strlen(env_string) != 0) {
 		errno = 0;
@@ -71,6 +85,7 @@ void __attribute__ ((constructor)) faultinject_constructor(void)
 			g_max_op_count = 0;
 		}
 	}
+	g_trace_pid = getpid();
 	/* Function specific environment variable configuration parsing. */
 @CONSTRUCTOR_CONFIG@
 }
@@ -82,6 +97,7 @@ static int faultinject_fail_operation(void)
 
 	if (g_max_op_count > 0 && ++g_op_count > g_max_op_count) {
 		printf("failing with op count: %d\n", (int)g_op_count);
+		dump_backtrace();
 		return (EFAULT);
 	}
 
@@ -98,13 +114,31 @@ static int faultinject_trace_operation(void)
 }
 #endif
 
+static void dump_backtrace(void)
+{
+	int i;
+	char tmp_file[256];
+	FILE *log_fd;
+
+	/* Log the backtrace */
+	(void)snprintf(tmp_file, 256, "%s/fi_pid_%d_inject_bt.log",
+	    g_library_trace_tmpdir, g_trace_pid);
+	log_fd = (*libc_fopen)(tmp_file, "a");
+        if (log_fd != NULL) {
+		fprintf(log_fd, "Induced fault in following backtrace:\n");
+		for(i = 0; i <= g_backtrace_counter; i++)
+			fprintf(log_fd, "%s\n", g_backtrace_info[i]);
+		fprintf(log_fd, "\n");
+		(*libc_fclose)(log_fd);
+	}
+}
+
 static int faultinject_caller_interesting(void)
 {
 	unw_cursor_t cursor;
 	unw_context_t uc;
 	unw_word_t offp;
-	char fn_name[256];
-	int count, ret;
+	int ret;
 
 	/* Avoid fall-injecting recursively inside this particular function */
 	static int in_fi_func = 0;
@@ -124,17 +158,19 @@ static int faultinject_caller_interesting(void)
 	if (0 != unw_init_local(&cursor, &uc))
 		goto end;
 
-	count = 10;	/* Check a max depth of 10 callers */
-	while (unw_step(&cursor) > 0 && count > 0) {
-		fn_name[0] = '\0';
-		if (0 == unw_get_proc_name(&cursor, fn_name, 256, &offp) &&
-		    0 != strlen(fn_name)) {
-			if (strstr(fn_name, g_library_trace_substring) != NULL) {
+	g_backtrace_counter = 0;	/* Check a max depth of 10 callers */
+	while (unw_step(&cursor) > 0 && g_backtrace_counter < 10) {
+		g_backtrace_info[g_backtrace_counter][0] = '\0';
+		if (0 == unw_get_proc_name(&cursor,
+		    g_backtrace_info[g_backtrace_counter], 256, &offp) &&
+		    0 != strlen(g_backtrace_info[g_backtrace_counter])) {
+			if (strstr(g_backtrace_info[g_backtrace_counter],
+			    g_library_trace_substring) != NULL) {
 				ret = 1;
 				goto end;
 			}
 		}
-		count--;
+		g_backtrace_counter++;
 	}
 
 end:

@@ -71,8 +71,20 @@ static libc_remove_t libc_remove = NULL;
 static libc_rename_t libc_rename = NULL;
 
 static char *g_library_trace_substring = NULL;
+static char *g_library_trace_tmpdir = NULL;
+
 static uint64_t g_op_count = 0;
 static uint64_t g_max_op_count = 0;
+static pid_t g_trace_pid = 0;
+
+static char g_backtrace_info[10][256];
+/*
+ * points to the index where last valid backtrace function with valid tracing
+ * substring is identified
+ */
+static int g_backtrace_counter;
+
+static void dump_backtrace(void);
 
 
 static uint64_t g_max_close_op_count = 0;
@@ -256,7 +268,9 @@ void __attribute__ ((constructor)) faultinject_constructor(void)
 	    strlen(env_string) != 0) {
 		g_library_trace_substring = env_string;
 	}
-
+	if ((env_string = getenv("FAULTINJECT_TMP_DIR")) != NULL &&
+	    strlen(env_string) != 0) {
+		g_library_trace_tmpdir = env_string; }
 	if ((env_string = getenv("FAULTINJECT_FAIL_COUNT")) != NULL &&
 	    strlen(env_string) != 0) {
 		errno = 0;
@@ -267,6 +281,7 @@ void __attribute__ ((constructor)) faultinject_constructor(void)
 			g_max_op_count = 0;
 		}
 	}
+	g_trace_pid = getpid();
 	/* Function specific environment variable configuration parsing. */
 
 	if ((env_string = getenv("FAULTINJECT_CLOSE_COUNT")) != NULL &&
@@ -511,6 +526,7 @@ static int faultinject_fail_operation(void)
 
 	if (g_max_op_count > 0 && ++g_op_count > g_max_op_count) {
 		printf("failing with op count: %d\n", (int)g_op_count);
+		dump_backtrace();
 		return (EFAULT);
 	}
 
@@ -520,6 +536,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing close with op count: %d\n", (int)g_close_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_closedir_op_count > 0 &&
@@ -527,6 +544,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing closedir with op count: %d\n", (int)g_closedir_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_fclose_op_count > 0 &&
@@ -534,6 +552,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing fclose with op count: %d\n", (int)g_fclose_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_fsync_op_count > 0 &&
@@ -541,6 +560,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing fsync with op count: %d\n", (int)g_fsync_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_fdatasync_op_count > 0 &&
@@ -548,6 +568,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing fdatasync with op count: %d\n", (int)g_fdatasync_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_fopen_op_count > 0 &&
@@ -555,6 +576,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing fopen with op count: %d\n", (int)g_fopen_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_truncate_op_count > 0 &&
@@ -562,6 +584,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing truncate with op count: %d\n", (int)g_truncate_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_ftruncate_op_count > 0 &&
@@ -569,6 +592,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing ftruncate with op count: %d\n", (int)g_ftruncate_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_mmap_op_count > 0 &&
@@ -576,6 +600,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing mmap with op count: %d\n", (int)g_mmap_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_munmap_op_count > 0 &&
@@ -583,6 +608,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing munmap with op count: %d\n", (int)g_munmap_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_open_op_count > 0 &&
@@ -590,6 +616,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing open with op count: %d\n", (int)g_open_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_open64_op_count > 0 &&
@@ -597,6 +624,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing open64 with op count: %d\n", (int)g_open64_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_opendir_op_count > 0 &&
@@ -604,6 +632,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing opendir with op count: %d\n", (int)g_opendir_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_pread_op_count > 0 &&
@@ -611,6 +640,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing pread with op count: %d\n", (int)g_pread_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_pwrite_op_count > 0 &&
@@ -618,6 +648,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing pwrite with op count: %d\n", (int)g_pwrite_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_readdir_op_count > 0 &&
@@ -625,6 +656,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing readdir with op count: %d\n", (int)g_readdir_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_remove_op_count > 0 &&
@@ -632,6 +664,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing remove with op count: %d\n", (int)g_remove_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	else if (g_max_rename_op_count > 0 &&
@@ -639,6 +672,7 @@ static int faultinject_fail_operation(void)
 #ifdef HAVE_TRACE
 		printf("failing rename with op count: %d\n", (int)g_rename_op_count);
 #endif
+                dump_backtrace();
 		return (EFAULT);
 	}
 	return (0);
@@ -652,13 +686,31 @@ static int faultinject_trace_operation(void)
 }
 #endif
 
+static void dump_backtrace(void)
+{
+	int i;
+	char tmp_file[256];
+	FILE *log_fd;
+
+	/* Log the backtrace */
+	(void)snprintf(tmp_file, 256, "%s/fi_pid_%d_inject_bt.log",
+	    g_library_trace_tmpdir, g_trace_pid);
+	log_fd = (*libc_fopen)(tmp_file, "a");
+        if (log_fd != NULL) {
+		fprintf(log_fd, "Induced fault in following backtrace:\n");
+		for(i = 0; i <= g_backtrace_counter; i++)
+			fprintf(log_fd, "%s\n", g_backtrace_info[i]);
+		fprintf(log_fd, "\n");
+		(*libc_fclose)(log_fd);
+	}
+}
+
 static int faultinject_caller_interesting(void)
 {
 	unw_cursor_t cursor;
 	unw_context_t uc;
 	unw_word_t offp;
-	char fn_name[256];
-	int count, ret;
+	int ret;
 
 	/* Avoid fall-injecting recursively inside this particular function */
 	static int in_fi_func = 0;
@@ -678,17 +730,19 @@ static int faultinject_caller_interesting(void)
 	if (0 != unw_init_local(&cursor, &uc))
 		goto end;
 
-	count = 10;	/* Check a max depth of 10 callers */
-	while (unw_step(&cursor) > 0 && count > 0) {
-		fn_name[0] = '\0';
-		if (0 == unw_get_proc_name(&cursor, fn_name, 256, &offp) &&
-		    0 != strlen(fn_name)) {
-			if (strstr(fn_name, g_library_trace_substring) != NULL) {
+	g_backtrace_counter = 0;	/* Check a max depth of 10 callers */
+	while (unw_step(&cursor) > 0 && g_backtrace_counter < 10) {
+		g_backtrace_info[g_backtrace_counter][0] = '\0';
+		if (0 == unw_get_proc_name(&cursor,
+		    g_backtrace_info[g_backtrace_counter], 256, &offp) &&
+		    0 != strlen(g_backtrace_info[g_backtrace_counter])) {
+			if (strstr(g_backtrace_info[g_backtrace_counter],
+			    g_library_trace_substring) != NULL) {
 				ret = 1;
 				goto end;
 			}
 		}
-		count--;
+		g_backtrace_counter++;
 	}
 
 end:
@@ -701,13 +755,17 @@ FAULT_INJECT_API int  close(int fd)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_close.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_close.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: close(");
                     
@@ -731,13 +789,17 @@ FAULT_INJECT_API int  closedir(DIR *dirp)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_closedir.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_closedir.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: closedir(");
                     
@@ -761,13 +823,17 @@ FAULT_INJECT_API int  fclose(FILE *fp)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_fclose.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_fclose.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: fclose(");
                     
@@ -791,13 +857,17 @@ FAULT_INJECT_API int  fsync(int fd)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_fsync.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_fsync.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: fsync(");
                     
@@ -821,13 +891,17 @@ FAULT_INJECT_API int  fdatasync(int fd)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_fdatasync.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_fdatasync.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: fdatasync(");
                     
@@ -851,13 +925,17 @@ FAULT_INJECT_API FILE * fopen(const char *path, const char *mode)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_fopen.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_fopen.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: fopen(");
                     
@@ -882,13 +960,17 @@ FAULT_INJECT_API int  truncate(const char *path, off_t length)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_truncate.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_truncate.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: truncate(");
                     
@@ -913,13 +995,17 @@ FAULT_INJECT_API int  ftruncate(int fd, off_t length)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_ftruncate.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_ftruncate.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: ftruncate(");
                     
@@ -944,13 +1030,17 @@ FAULT_INJECT_API void * mmap(void *addr, size_t length, int prot, int flags, int
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_mmap.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_mmap.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: mmap(");
                     
@@ -969,7 +1059,7 @@ FAULT_INJECT_API void * mmap(void *addr, size_t length, int prot, int flags, int
         #endif
             if ((ret = faultinject_fail_operation()) != 0) {
                 errno = ret;
-                return (NULL);
+                return ((void *)-1);
             }
     }
     return (*libc_mmap)(addr, length, prot, flags, fd, offset);
@@ -979,13 +1069,17 @@ FAULT_INJECT_API int  munmap(void *addr, size_t length)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_munmap.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_munmap.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: munmap(");
                     
@@ -1010,6 +1104,7 @@ FAULT_INJECT_API int  open(const char *pathname, int oflag,...)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     va_list ap;
@@ -1036,7 +1131,10 @@ FAULT_INJECT_API int  open(const char *pathname, int oflag,...)
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_open.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_open.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: open(");
                     
@@ -1062,6 +1160,7 @@ FAULT_INJECT_API int  open64(const char *pathname, int oflag,...)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     va_list ap;
@@ -1088,7 +1187,10 @@ FAULT_INJECT_API int  open64(const char *pathname, int oflag,...)
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_open64.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_open64.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: open64(");
                     
@@ -1114,13 +1216,17 @@ FAULT_INJECT_API DIR * opendir(const char *name)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_opendir.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_opendir.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: opendir(");
                     
@@ -1144,13 +1250,17 @@ FAULT_INJECT_API ssize_t  pread(int fd, void *buf, size_t count, off_t offset)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_pread.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_pread.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: pread(");
                     
@@ -1177,13 +1287,17 @@ FAULT_INJECT_API ssize_t  pwrite(int fd, const void *buf, size_t count, off_t of
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_pwrite.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_pwrite.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: pwrite(");
                     
@@ -1210,13 +1324,17 @@ FAULT_INJECT_API struct dirent * readdir(DIR *dirp)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_readdir.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_readdir.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: readdir(");
                     
@@ -1240,13 +1358,17 @@ FAULT_INJECT_API int  remove(const char *pathname)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_remove.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_remove.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: remove(");
                     
@@ -1270,13 +1392,17 @@ FAULT_INJECT_API int  rename(const char *oldpath, const char *newpath)
 {
     int ret;
     FILE *log_fd;
+    char tmp_file[256];
 
 
     if (faultinject_caller_interesting()) {
         #ifdef HAVE_TRACE
             if (faultinject_trace_operation()) {
                 /* Log the operation */
-                log_fd = (*libc_fopen)("/tmp/faultinject_rename.log", "a");
+                (void)snprintf(tmp_file, 256,
+                    "%s/fi_pid_%d_rename.log", g_library_trace_tmpdir,
+                    g_trace_pid);
+                log_fd = (*libc_fopen)(tmp_file, "a");
                 if (log_fd != NULL) {
                     fprintf(log_fd, "Intercepted call to: rename(");
                     
