@@ -41,7 +41,7 @@ static uint64_t g_op_count = 0;
 static uint64_t g_max_op_count = 0;
 static pid_t g_trace_pid = 0;
 
-static char g_backtrace_info[10][256];
+static char g_backtrace_info[20][256];
 /*
  * points to the index where last valid backtrace function with valid tracing
  * substring is identified
@@ -126,7 +126,7 @@ static void dump_backtrace(void)
 	log_fd = (*libc_fopen)(tmp_file, "a");
         if (log_fd != NULL) {
 		fprintf(log_fd, "Induced fault in following backtrace:\n");
-		for(i = 0; i <= g_backtrace_counter; i++)
+		for(i = 0; i < g_backtrace_counter; i++)
 			fprintf(log_fd, "%s\n", g_backtrace_info[i]);
 		fprintf(log_fd, "\n");
 		(*libc_fclose)(log_fd);
@@ -138,7 +138,7 @@ static int faultinject_caller_interesting(void)
 	unw_cursor_t cursor;
 	unw_context_t uc;
 	unw_word_t offp;
-	int ret;
+	int i, ret;
 
 	/* Avoid fall-injecting recursively inside this particular function */
 	static int in_fi_func = 0;
@@ -158,19 +158,26 @@ static int faultinject_caller_interesting(void)
 	if (0 != unw_init_local(&cursor, &uc))
 		goto end;
 
-	g_backtrace_counter = 0;	/* Check a max depth of 10 callers */
-	while (unw_step(&cursor) > 0 && g_backtrace_counter < 10) {
+	/*
+	 * Get stack trace upto 20 callers deep, we will dump this backtrace
+	 * when needed. Scan through this backtrace looking for a match to the
+	 * library we want to induce fault in
+	 */
+	g_backtrace_counter = 0;
+	while (unw_step(&cursor) > 0 && g_backtrace_counter < 20) {
 		g_backtrace_info[g_backtrace_counter][0] = '\0';
-		if (0 == unw_get_proc_name(&cursor,
-		    g_backtrace_info[g_backtrace_counter], 256, &offp) &&
-		    0 != strlen(g_backtrace_info[g_backtrace_counter])) {
-			if (strstr(g_backtrace_info[g_backtrace_counter],
-			    g_library_trace_substring) != NULL) {
-				ret = 1;
-				goto end;
-			}
-		}
+		if (0 != unw_get_proc_name(&cursor,
+		    g_backtrace_info[g_backtrace_counter], 256, &offp) ||
+		    0 == strlen(g_backtrace_info[g_backtrace_counter]))
+		       break;
 		g_backtrace_counter++;
+	}
+	for (i = 0; i < g_backtrace_counter; i++) {
+		if (strstr(g_backtrace_info[i],
+		    g_library_trace_substring) != NULL) {
+				ret = 1;
+				break;
+			}
 	}
 
 end:
