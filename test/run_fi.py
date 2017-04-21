@@ -30,7 +30,8 @@
 #      Command line fault injection test runner
 #
 
-import os, sys, shlex, threading, time, signal
+import os, sys, shlex, threading, time, signal, multiprocessing
+from multiprocessing.dummy import Pool as ThreadPool
 from subprocess import Popen, PIPE
 from collections import namedtuple
 
@@ -63,6 +64,24 @@ class Testsuite(object):
 
         self.test_env = self.generate_global_test_env()
         self.testset_list = []
+        self.threads = 1
+
+    def cleanup_pre(self):
+        # Recreate an empty test directory
+        cmd = 'rm -rf ' + FI_TMP_DIR
+        cmd += ' && '
+        cmd += 'mkdir ' + FI_TMP_DIR
+        process = Popen(cmd, shell=True)
+        process.wait()
+
+    def cleanup_post(self):
+            # delete the core files and temp logs
+            cmd = 'rm -f ' + CUR_DIR + '/core.*'
+            cmd += ' && '
+            cmd += 'rm -rf ' + FI_TMP_DIR
+            dbg(1, 'Cleaning up temporary files')
+            process = Popen(cmd, shell=True)
+            process.wait()
 
     def generate_global_test_env(self):
         run_env = dict(os.environ, FAULTINJECT_TMP_DIR=FI_TMP_DIR)
@@ -84,6 +103,9 @@ class Testsuite(object):
     def set_testset_list(self, testset_list):
         self.testset_list = testset_list
 
+    def set_threads(self, threads):
+        self.threads = threads
+
     def get_testset_count(self):
         return len(self.testset_list)
 
@@ -97,24 +119,38 @@ class Testsuite(object):
                 f.write('    failcountignore=' + ",".join(str(i) for i in testset.fail_count_ignore) + '\n')
                 f.write('    timeout=' + str(testset.timeout) + '\n')
 
-    def run(self):
-        for testset in self.testset_list:
-            for failcount in range(testset.fail_count_beg, testset.fail_count_end + 1):
-                if not failcount in testset.fail_count_ignore:
-                    dbg(1, 'Running test : ' + testset.cmd)
-                    test = Test(testset.cmd, self.test_env, failcount, testset.timeout)
-                    result = test.run()
+    def run_testset(self, testset):
+        dbg(1, 'Running test set: ' + str(testset))
+        for failcount in range(testset.fail_count_beg, testset.fail_count_end + 1):
+            if not failcount in testset.fail_count_ignore:
+                dbg(1, 'Running test : ' + testset.cmd)
+                test = Test(testset.cmd, self.test_env, failcount, testset.timeout)
+                result, ret_code = test.run()
 
-                    tmp_dbg_str = '[' + '{0: <50}'.format(testset.cmd)
-                    tmp_dbg_str += ' , fi_count: ' + str(failcount) + ']  ..  '
+                if self.threads == 1 or (not result):
                     if result:
-                        tmp_dbg_str += '[PASS]'
+                        tmp_dbg_str = '[PASS]'
                     else:
-                        tmp_dbg_str += '[FAIL]'
+                        tmp_dbg_str = '[FAIL]'
+                    tmp_dbg_str += '  ..  ' + '[fi_count: ' + str(failcount) + ', cmd: ' + testset.cmd + ']'
                     dbg(0, tmp_dbg_str)
-                    if not result and not self.proceed_on_failure:
-                        dbg(1, 'Aborted testing at the first test failure.')
-                        sys.exit(2)
+                if not result and not self.proceed_on_failure:
+                    dbg(1, 'Aborted testing at the first test failure.')
+                    sys.exit(2)
+                if ret_code == 0:
+                    # The application ran successfully,
+                    # likely we are injecting faults past where applicaton can fail.
+                    # Let's call it done
+                    break
+        dbg(0, '[PASS]  ..  ' + str(testset))
+
+    def run(self):
+        self.cleanup_pre()
+        pool = ThreadPool(self.threads)
+        pool.map(self.run_testset, self.testset_list)
+        pool.close()
+        pool.join()
+        self.cleanup_post()
 
 Testset = namedtuple('Testset', ['cmd', 'fail_count_beg', 'fail_count_end', 'fail_count_ignore', 'timeout'])
 
@@ -127,14 +163,6 @@ class Test(object):
         self.timeout = timeout
         self.proc = None
 
-    def pre_test_cleanup(self):
-        # Recreate an empty test directory
-        cmd = 'rm -rf ' + FI_TMP_DIR
-        cmd += ' && '
-        cmd += 'mkdir ' + FI_TMP_DIR
-        process = Popen(cmd, shell=True)    
-        process.wait()
-
     def dump_testconfig(self, filename):
         with open(filename, 'w') as f:
             # Dump this specific test
@@ -143,31 +171,22 @@ class Test(object):
             f.write('    failcountend=' + str(self.failcount) + '\n')
             f.write('    timeout=' + str(self.timeout) + '\n')
 
-    def post_test_cleanup(self, save_files):
-        #save_files = True
-        if save_files:
-            # Move core and log files into a separate dir
-            save_dir = CUR_DIR + '/FI_TEST.' + str(self.proc.pid) + '/'
-            dbg(1, 'Pid for the failed process: ' + str(self.proc.pid))
-            dbg(0, 'Saving the generated logs and config in dir: ' + save_dir)
+    def save_test_files(self):
+        # Move core and log files into a separate dir
+        save_dir = CUR_DIR + '/FI_TEST.' + str(self.proc.pid) + '/'
+        dbg(1, 'Pid for the failed process: ' + str(self.proc.pid))
+        dbg(0, 'Saving the generated logs and config in dir: ' + save_dir)
+        cmd = 'mkdir ' + save_dir
+        cmd += ' && '
+        cmd += 'mv ' + FI_TMP_DIR + '*' + str(self.proc.pid) + '* '  + save_dir
+        cmd += ' && '
+        cmd += 'mv ' + CUR_DIR + '/core.*.' + str(self.proc.pid) + ' ' + save_dir
+        process = Popen(cmd, stderr=PIPE, shell=True)
+        process.wait()
 
-            cmd = 'mv ' + FI_TMP_DIR + ' ' + save_dir
-            cmd += ' && '
-            cmd += 'mv ' + CUR_DIR + '/core.*.' + str(self.proc.pid) + ' ' + save_dir
-            process = Popen(cmd, stderr=PIPE, shell=True)
-            process.wait()
-
-            # Dump config to reproduce
-            conf_file = save_dir + 'config_' + str(self.proc.pid) + '.fi'
-            self.dump_testconfig(conf_file)
-        else:
-            # delete the core files and logs if not asking to save them
-            cmd = 'rm -f ' + CUR_DIR + '/core.*.' + str(self.proc.pid) 
-            cmd += ' && '
-            cmd += 'rm -rf ' + FI_TMP_DIR
-            dbg(1, 'Cleaning up temporary files')
-            process = Popen(cmd, shell=True)
-            process.wait()
+        # Dump config to reproduce
+        conf_file = save_dir + 'config_' + str(self.proc.pid) + '.fi'
+        self.dump_testconfig(conf_file)
 
     def did_test_fail(self, retcode):
         # Following signals are erroneous exits, but likely generated by the
@@ -183,14 +202,14 @@ class Test(object):
 
     def run(self):
         self.proc = Process(self.cmd, self.run_env)
-        self.pre_test_cleanup()
         retcode = self.proc.run(self.timeout)
         dbg(1, 'Process exited with return code: ' + str(retcode))
 
         test_failed = self.did_test_fail(retcode)
-        self.post_test_cleanup(save_files = test_failed)
+        if test_failed:
+            self.save_test_files()
 
-        return (not test_failed)
+        return (not test_failed), retcode
 
 class Process(object):
     def __init__(self, cmd, run_env):
@@ -304,6 +323,7 @@ if __name__ == '__main__':
     read_from_config = False
     dump_config = False
     timeout = 300
+    threads = multiprocessing.cpu_count()
     fi_lib_path = None
 
     # Process arguments passed
@@ -340,6 +360,9 @@ if __name__ == '__main__':
                 continue
             if option == '-timeout' or option == 't':
                 timeout = int(args.pop(0))
+                continue
+            if option == '-threads' or option == 'j':
+                threads = int(args.pop(0))
                 continue
             if option == '-verbose':
                 verbose = int(args.pop(0))
@@ -381,6 +404,10 @@ if __name__ == '__main__':
         append_testset_list_from_cmd_list(testset_list, cmd_list, fail_count_beg, fail_count_end,
             fail_count_ignore, timeout)
     testsuite.set_testset_list(testset_list)
+    if len(testset_list) == 1 and threads != 1:
+        print 'Only one test in the test list, running single threaded.'
+        threads = 1
+    testsuite.set_threads(threads)
 
     if testsuite.get_testset_count() == 0:
         dbg(0, 'No tests specified to run')
