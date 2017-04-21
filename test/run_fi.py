@@ -65,6 +65,7 @@ class Testsuite(object):
         self.test_env = self.generate_global_test_env()
         self.testset_list = []
         self.threads = 1
+        self.abort_tests = False
 
     def cleanup_pre(self):
         # Recreate an empty test directory
@@ -123,6 +124,10 @@ class Testsuite(object):
         dbg(1, 'Running test set: ' + str(testset))
         for failcount in range(testset.fail_count_beg, testset.fail_count_end + 1):
             if not failcount in testset.fail_count_ignore:
+                if self.abort_tests:
+                    dbg(1, 'A test already failed, abort [cmd: ' + testset.cmd + ']')
+                    return False
+
                 dbg(1, 'Running test : ' + testset.cmd)
                 test = Test(testset.cmd, self.test_env, failcount, testset.timeout)
                 result, ret_code = test.run()
@@ -136,7 +141,8 @@ class Testsuite(object):
                     dbg(0, tmp_dbg_str)
                 if not result and not self.proceed_on_failure:
                     dbg(1, 'Aborted testing at the first test failure.')
-                    sys.exit(2)
+                    self.abort_tests = True
+                    return False
                 if ret_code == 0:
                     # The application ran successfully,
                     # likely we are injecting faults past where applicaton can fail.
@@ -147,10 +153,12 @@ class Testsuite(object):
     def run(self):
         self.cleanup_pre()
         pool = ThreadPool(self.threads)
-        pool.map(self.run_testset, self.testset_list)
+        results = pool.map(self.run_testset, self.testset_list)
         pool.close()
         pool.join()
         self.cleanup_post()
+        if False in results:
+            sys.exit(2)
 
 Testset = namedtuple('Testset', ['cmd', 'fail_count_beg', 'fail_count_end', 'fail_count_ignore', 'timeout'])
 
