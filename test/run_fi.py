@@ -137,7 +137,11 @@ class Testsuite(object):
 
     def run_testset(self, testset):
         dbg(1, 'Running test set: ' + str(testset))
-        for failcount in range(testset.fail_count_beg, testset.fail_count_end + 1):
+        failcount = testset.fail_count_beg
+        while True:
+            if testset.fail_count_end != None and failcount > testset.fail_count_end:
+                # We are past the last iteration (failcountend) of the test
+                break
             if not failcount in testset.fail_count_ignore:
                 if self.abort_tests:
                     dbg(1, 'A test already failed, abort [cmd: ' + testset.cmd + ']')
@@ -162,7 +166,9 @@ class Testsuite(object):
                     # The application ran successfully,
                     # likely we are injecting faults past where applicaton can fail.
                     # Let's call it done
+                    dbg(0, 'Stopping at first success .. ' + '[fi_count: ' + str(failcount) + ', cmd: ' + testset.cmd + ']')
                     break
+            failcount += 1
         dbg(0, '[PASS]  ..  ' + str(testset))
 
     def run(self):
@@ -282,7 +288,7 @@ class Process(object):
 
 def append_testset_list_from_cmd_list(testset_list, cmd_list, fail_count_beg, fail_count_end,
     fail_count_ignore, timeout):
-    if fail_count_beg > fail_count_end:
+    if fail_count_end != None and fail_count_beg > fail_count_end:
         dbg(0, 'Fault injection begin count can not be greater than end count')
         sys.exit(2)
     for cmd_itr in cmd_list:
@@ -340,7 +346,7 @@ def append_testset_list_from_config(testset_list, conf_file):
 if __name__ == '__main__':
     # default parameters
     fail_count_beg = 1
-    fail_count_end = 100
+    fail_count_end = None
     fail_count_ignore = []
     proceed_on_failure = False
     read_from_config = False
