@@ -148,11 +148,12 @@ class Testsuite(object):
                     dbg(1, 'A test already failed, abort [cmd: ' + testset.cmd + ']')
                     return False
 
-                dbg(1, 'Running test : ' + testset.cmd)
                 test = Test(testset.cmd, self.test_env, failcount, testset.timeout)
                 result, ret_code = test.run()
+                dbg(1, 'Exit code:' + str(ret_code) + ' .. ' + '[fi_count: ' +
+                    str(failcount) + ', cmd: ' + testset.cmd + ']')
 
-                if self.threads == 1 or (not result):
+                if self.threads == 1 or verbose > 0 or (not result):
                     if result:
                         tmp_dbg_str = '[PASS]'
                     else:
@@ -233,7 +234,6 @@ class Test(object):
     def run(self):
         self.proc = Process(self.cmd, self.run_env)
         retcode = self.proc.run(self.timeout)
-        dbg(1, 'Process exited with return code: ' + str(retcode))
 
         test_failed = self.did_test_fail(retcode)
         if test_failed:
