@@ -46,7 +46,22 @@ FI_TMP_DIR = CUR_DIR + '/FI_TEST/'
 verbose = 0
 
 def usage():
-    print 'Blah..'
+    print 'Usage:\n\
+  $ cd build_posix\n\
+  $ python FI_LIB/test/run_fi.py [ options ] [ tests ]\n\
+\n\
+Options:\n\
+  -c file | --config file                       use a config file for controlling tests\n\
+  -C file | --configdump file                   dump the test config into the given file\n\
+  -b N | --failcountbeg N                       starting call count to inject faults after every Nth intercepted call\n\
+  -e N | --failcountend N                       ending call count to inject faults after every Nth intercepted call\n\
+  -i N1, N2, .. | --failcountignore N1, N2, ..  list of call counts to NOT start injecting faults at\n\
+  -l path | --filibpath                         path to fault injection library\n\
+  -p | --proceedonfailure                       continue past first detected failure\n\
+  -t N | --timeout N                            consider the application being tested hung after N seconds\n\
+  -j N | --threads N                            run N tests simultaneously\n\
+  -v N | --verbose N                            set verboseness to N (0<=N<=2, default=0)\n\
+'
 
 def dbg(level, msg):
     if verbose >= level:
@@ -336,6 +351,10 @@ if __name__ == '__main__':
 
     # Process arguments passed
     args = sys.argv[1:]
+    if (len(args) == 0):
+        usage()
+        sys.exit(2)
+
     cmd_list = []
     while len(args) > 0:
         arg = args.pop(0)
@@ -372,17 +391,11 @@ if __name__ == '__main__':
             if option == '-threads' or option == 'j':
                 threads = int(args.pop(0))
                 continue
-            if option == '-verbose':
+            if option == '-verbose' or option == 'v':
                 verbose = int(args.pop(0))
                 if verbose < 0 or verbose > 2:
                     dbg(0, 'A valid value for verbose is between 0 and 2.')
                     sys.exit(2)
-                continue
-            if option == 'v':
-                verbose = 1
-                continue
-            if option == 'vv':
-                verbose = 2
                 continue
             dbg(0, 'unknown arg: ' + arg)
             usage()
