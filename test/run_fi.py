@@ -38,6 +38,7 @@ from collections import namedtuple
 DEF_FAULTINJECT_LIBRARY_NAME = '__wt'
 CUR_DIR = os.getcwd()
 PMP_PATH = os.path.dirname(os.path.abspath(__file__)) + '/pmp.sh'
+DEF_FI_LIB_PATH = os.path.dirname(os.path.abspath(__file__)) + '/../'
 DEF_PYTHON_PATH = CUR_DIR + '/../lang/python:'
 DEF_PYTHON_PATH += CUR_DIR + '/lang/python:'
 DEF_PYTHON_PATH += CUR_DIR + '/../test/suite'
@@ -353,7 +354,7 @@ if __name__ == '__main__':
     dump_config = False
     timeout = 300
     threads = multiprocessing.cpu_count()
-    fi_lib_path = None
+    fi_lib_path = DEF_FI_LIB_PATH
 
     # Process arguments passed
     args = sys.argv[1:]
@@ -407,10 +408,6 @@ if __name__ == '__main__':
             usage()
             sys.exit(2) 
         cmd_list.append(arg)
-
-    if fi_lib_path == None:
-        dbg(0, "Fault injection library path not specified.")
-        sys.exit(2)
 
     # Set various paths for the test env
     ld_lib_path = fi_lib_path + '/.libs'
