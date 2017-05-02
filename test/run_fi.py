@@ -250,14 +250,14 @@ class Process(object):
     def dump_backtraces(self):
         # Obtain backtraces for all threads using pmp every few seconds and dump in
         # a file, might help later to debug
-        dbg(1, 'Collecting backtraces for pid ' + str(self.pid))
+        dbg(0, 'Collecting backtraces for pid ' + str(self.pid))
         filename = FI_TMP_DIR + '/fi_pid_' + str(self.pid) + '_hung_btt.log'
         with open(filename, 'w') as f:
             for i in range(3):
                 pmp_process = Popen([PMP_PATH, str(self.pid)], stdout=PIPE, stderr=PIPE)
                 out = pmp_process.communicate()
                 f.write(out[0] + '\n')
-                dbg(1, 'Backtrace:\n' + out[0]) 
+                dbg(0, 'Backtrace:\n' + out[0])
                 time.sleep(1)
 
     def run(self, timeout):
