@@ -153,13 +153,12 @@ class Testsuite(object):
                 dbg(1, 'Exit code:' + str(ret_code) + ' .. ' + '[fi_count: ' +
                     str(failcount) + ', cmd: ' + testset.cmd + ']')
 
-                if self.threads == 1 or verbose > 0 or (not result):
-                    if result:
-                        tmp_dbg_str = '[PASS]'
-                    else:
-                        tmp_dbg_str = '[FAIL]'
-                    tmp_dbg_str += '  ..  ' + '[fi_count: ' + str(failcount) + ', cmd: ' + testset.cmd + ']'
-                    dbg(0, tmp_dbg_str)
+                if result:
+                    tmp_dbg_str = '[PASS]'
+                else:
+                    tmp_dbg_str = '[FAIL]'
+                tmp_dbg_str += '  ..  ' + '[fi_count: ' + str(failcount) + ', cmd: ' + testset.cmd + ']'
+                dbg(0, tmp_dbg_str)
                 if not result and not self.proceed_on_failure:
                     dbg(1, 'Aborted testing at the first test failure.')
                     self.abort_tests = True
