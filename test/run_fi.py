@@ -42,7 +42,10 @@ DEF_FI_LIB_PATH = os.path.dirname(os.path.abspath(__file__)) + '/../'
 DEF_PYTHON_PATH = CUR_DIR + '/../lang/python:'
 DEF_PYTHON_PATH += CUR_DIR + '/lang/python:'
 DEF_PYTHON_PATH += CUR_DIR + '/../test/suite'
+DEF_PYTHON_TESTSUITE_RUN_CMD = CUR_DIR + '/../test/suite/run.py'
 FI_TMP_DIR = CUR_DIR + '/FI_TEST/'
+WTTEST_DIR = CUR_DIR + '/WT_TEST/'
+CORRUPTION_TEST_PATH = os.path.dirname(os.path.abspath(__file__)) + '/corruption_test.sh'
 
 verbose = 0
 
@@ -54,6 +57,7 @@ def usage():
 Options:\n\
   -c file | --config file                       use a config file for controlling tests\n\
   -C file | --configdump file                   dump the test config into the given file\n\
+  -x | --corruptiontest                         run fault-injection with corruption test\n\
   -b N | --failcountbeg N                       starting call count to inject faults after every Nth intercepted call\n\
   -e N | --failcountend N                       ending call count to inject faults after every Nth intercepted call\n\
   -i N1, N2, .. | --failcountignore N1, N2, ..  list of call counts to NOT start injecting faults at\n\
@@ -64,18 +68,22 @@ Options:\n\
   -v N | --verbose N                            set verboseness to N (0<=N<=2, default=0)\n\
 '
 
+def exit_abnormal():
+    os._exit(2)
+
 def dbg(level, msg):
     if verbose >= level:
         print msg
 
 class Testsuite(object):
-    def __init__(self, proceed_on_failure, fi_lib_name,
+    def __init__(self, corruption_test, proceed_on_failure, fi_lib_name,
         fi_ld_lib_path, fi_ld_load_loc, fi_python_path):
 
         self.fi_lib_name = fi_lib_name
         self.fi_ld_lib_path = fi_ld_lib_path
         self.fi_ld_load_loc =  fi_ld_load_loc
         self.proceed_on_failure = proceed_on_failure
+        self.corruption_test = corruption_test
         self.fi_python_path = fi_python_path
 
         self.test_env = self.generate_global_test_env()
@@ -137,19 +145,23 @@ class Testsuite(object):
                 f.write('    timeout=' + str(testset.timeout) + '\n')
 
     def run_testset(self, testset):
+        if self.abort_tests:
+            return False
         dbg(1, 'Running test set: ' + str(testset))
         failcount = testset.fail_count_beg
+        if (failcount == 0):
+            dbg(0, 'Aborting .. cmd: ' + testset.cmd + '. failcount cant be 0')
+            exit_abnormal()
         while True:
             if testset.fail_count_end != None and failcount > testset.fail_count_end:
                 # We are past the last iteration (failcountend) of the test
                 break
             if not failcount in testset.fail_count_ignore:
                 if self.abort_tests:
-                    dbg(1, 'A test already failed, abort [cmd: ' + testset.cmd + ']')
                     return False
 
-                test = Test(testset.cmd, self.test_env, failcount, testset.timeout)
-                result, ret_code = test.run()
+                test = Test(testset.cmd, self.test_env, failcount, testset.timeout, testset.dir)
+                result, ret_code = test.run(self.corruption_test)
                 dbg(1, 'Exit code:' + str(ret_code) + ' .. ' + '[fi_count: ' +
                     str(failcount) + ', cmd: ' + testset.cmd + ']')
 
@@ -158,7 +170,7 @@ class Testsuite(object):
                 else:
                     tmp_dbg_str = '[FAIL]'
                 tmp_dbg_str += '  ..  ' + '[fi_count: ' + str(failcount) + ', cmd: ' + testset.cmd + ']'
-                dbg(0, tmp_dbg_str)
+                dbg(1, tmp_dbg_str)
                 if not result and not self.proceed_on_failure:
                     dbg(1, 'Aborted testing at the first test failure.')
                     self.abort_tests = True
@@ -171,8 +183,11 @@ class Testsuite(object):
                     break
             failcount += 1
         dbg(0, '[PASS]  ..  ' + str(testset))
+        return True
 
     def run(self):
+        dbg(0, 'Running ' + str(self.get_testset_count()) + ' testset with ' +
+                str(self.threads) + ' threads .. ')
         self.cleanup_pre()
         pool = ThreadPool(self.threads)
         results = pool.map(self.run_testset, self.testset_list)
@@ -180,18 +195,19 @@ class Testsuite(object):
         pool.join()
         self.cleanup_post()
         if False in results:
-            sys.exit(2)
+            exit_abnormal()
 
-Testset = namedtuple('Testset', ['cmd', 'fail_count_beg', 'fail_count_end', 'fail_count_ignore', 'timeout'])
+Testset = namedtuple('Testset', ['cmd', 'fail_count_beg', 'fail_count_end', 'fail_count_ignore', 'timeout', 'dir'])
 
 class Test(object):
-    def __init__(self, cmd, global_test_env, failcount, timeout):
+    def __init__(self, cmd, global_test_env, failcount, timeout, rundir):
         self.cmd = cmd
         self.failcount = failcount
         self.run_env = dict(global_test_env,
             FAULTINJECT_FAIL_COUNT=str(self.failcount))
         self.timeout = timeout
         self.proc = None
+        self.rundir = rundir
 
     def dump_testconfig(self, filename):
         with open(filename, 'w') as f:
@@ -230,11 +246,31 @@ class Test(object):
             return True
         return False
 
-    def run(self):
+    def run_corruption_test(self, db_dir):
+        corruption_test_process = Popen([CORRUPTION_TEST_PATH, db_dir], stdout=PIPE, stderr=PIPE)
+        out = corruption_test_process.communicate()
+        if corruption_test_process.returncode == 0:
+            return True
+        else:
+            return False
+
+    def run(self, corruption_test):
         self.proc = Process(self.cmd, self.run_env)
         retcode = self.proc.run(self.timeout)
 
         test_failed = self.did_test_fail(retcode)
+
+        if not test_failed and corruption_test:
+            # In case of successful iteration run corruption test
+            tmp_str = '[fi_count: ' + str(self.failcount) + ', cmd: ' + self.cmd + ']'
+            dbg(1, 'Running corruption test for ' + tmp_str)
+            result = self.run_corruption_test(self.rundir)
+            if result:
+                dbg(1, 'PASSED corruption test for ' + tmp_str)
+            else:
+                dbg(0, 'FAILED corruption test for ' + tmp_str)
+                test_failed = True
+
         if test_failed:
             self.save_test_files()
 
@@ -290,10 +326,13 @@ def append_testset_list_from_cmd_list(testset_list, cmd_list, fail_count_beg, fa
     fail_count_ignore, timeout):
     if fail_count_end != None and fail_count_beg > fail_count_end:
         dbg(0, 'Fault injection begin count can not be greater than end count')
-        sys.exit(2)
+        exit_abnormal()
+    index_itr = len(testset_list) + 1
     for cmd_itr in cmd_list:
         testset_list.append(Testset(cmd = cmd_itr, fail_count_beg = fail_count_beg,
-            fail_count_end = fail_count_end, fail_count_ignore = fail_count_ignore, timeout = timeout))
+            fail_count_end = fail_count_end, fail_count_ignore = fail_count_ignore,
+            timeout = timeout, dir = WTTEST_DIR + 'set' + str(index_itr)))
+        index_itr += 1
 
 def append_testset_list_from_config(testset_list, conf_file):
     with open(conf_file, 'r') as f:
@@ -310,7 +349,7 @@ def append_testset_list_from_config(testset_list, conf_file):
             if fail_count_beg != None:
                 if len(cmd_list) == 0:
                     dbg(0, 'Need to have atleast one cmd found before failcountbeg')
-                    sys.exit(2)
+                    exit_abnormal()
                 append_testset_list_from_cmd_list(testset_list, cmd_list, fail_count_beg, fail_count_end,
                     fail_count_ignore, timeout)
                 fail_count_beg = None
@@ -336,12 +375,35 @@ def append_testset_list_from_config(testset_list, conf_file):
 
     if len(cmd_list) == 0:
         dbg(0, 'No cmd found in the config file')
-        sys.exit(2)
+        exit_abnormal()
     if fail_count_beg == None:
         dbg(0, 'Did not find failcountbeg for the last cmd to run')
-        sys.exit(2)
+        exit_abnormal()
     append_testset_list_from_cmd_list(testset_list, cmd_list, fail_count_beg, fail_count_end,
         fail_count_ignore, timeout)
+
+def auto_discover_testset_list(testset_list, count_beg, count_end, count_ignore, timeout):
+    dbg(0, 'Building test list by running python test suite discovery ')
+    ld_lib_path = CUR_DIR + '/.libs'
+    run_env = dict(os.environ, LD_LIBRARY_PATH=ld_lib_path)
+    discover_process = Popen(['python', DEF_PYTHON_TESTSUITE_RUN_CMD, '-n'], env=run_env, stdout=PIPE, stderr=PIPE)
+    out = discover_process.communicate()
+    tests = out[0].split('\n')
+    if discover_process.returncode != 0:
+        dbg(0, 'Python test suite discovery failed')
+        return
+    if len(tests) == 0:
+        dbg(0, 'Python test suite discovery did not generate any test')
+        return
+
+    index_itr = len(testset_list) + 1
+    for test in tests:
+        dir_itr = WTTEST_DIR + 'set' + str(index_itr)
+        cmd_itr = 'python ' + DEF_PYTHON_TESTSUITE_RUN_CMD + ' -v 3 ' + test + ' -D ' + dir_itr
+        testset_list.append(Testset(cmd = cmd_itr, fail_count_beg = count_beg,
+            fail_count_end = count_end, fail_count_ignore = count_ignore,
+            timeout = timeout, dir = dir_itr))
+        index_itr += 1
 
 if __name__ == '__main__':
     # default parameters
@@ -351,15 +413,13 @@ if __name__ == '__main__':
     proceed_on_failure = False
     read_from_config = False
     dump_config = False
+    corruption_test = False
     timeout = 300
     threads = multiprocessing.cpu_count()
     fi_lib_path = DEF_FI_LIB_PATH
 
     # Process arguments passed
     args = sys.argv[1:]
-    if (len(args) == 0):
-        usage()
-        sys.exit(2)
 
     cmd_list = []
     while len(args) > 0:
@@ -375,6 +435,9 @@ if __name__ == '__main__':
             if option == '-configdump' or option == 'C':
                 config_file_dump = args.pop(0)
                 dump_config = True
+                continue
+            if option == '-corruptiontest' or option == 'x':
+                corruption_test = True
                 continue
             if option == '-failcountbeg' or option == 'b':
                 fail_count_beg = int(args.pop(0))
@@ -401,11 +464,11 @@ if __name__ == '__main__':
                 verbose = int(args.pop(0))
                 if verbose < 0 or verbose > 2:
                     dbg(0, 'A valid value for verbose is between 0 and 2.')
-                    sys.exit(2)
+                    exit_abnormal()
                 continue
             dbg(0, 'unknown arg: ' + arg)
             usage()
-            sys.exit(2) 
+            exit_abnormal() 
         cmd_list.append(arg)
 
     # Set various paths for the test env
@@ -414,7 +477,8 @@ if __name__ == '__main__':
     ld_lib_path += CUR_DIR + '/.libs'
     ld_preload = fi_lib_path + '/.libs/libfaultinject.so'
 
-    testsuite = Testsuite(proceed_on_failure,
+    testsuite = Testsuite(corruption_test,
+        proceed_on_failure,
         DEF_FAULTINJECT_LIBRARY_NAME,
         ld_lib_path,
         ld_preload,
@@ -426,6 +490,10 @@ if __name__ == '__main__':
     if len(cmd_list) != 0:
         append_testset_list_from_cmd_list(testset_list, cmd_list, fail_count_beg, fail_count_end,
             fail_count_ignore, timeout)
+    if len(testset_list) == 0:
+        auto_discover_testset_list(testset_list, fail_count_beg, fail_count_end,
+                fail_count_ignore, timeout)
+
     testsuite.set_testset_list(testset_list)
     if len(testset_list) == 1 and threads != 1:
         print 'Only one test in the test list, running single threaded.'
