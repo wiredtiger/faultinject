@@ -1,0 +1,47 @@
+#Jenkins uses shell variables to pass config data.
+#Here is a list of tests to run fault injection on
+CONFIG_DATA="cmd=python ../test/suite/run.py -v 3 test_alter01
+cmd=python ../test/suite/run.py -v 3 test_async01
+cmd=python ../test/suite/run.py -v 3 test_async02
+cmd=python ../test/suite/run.py -v 3 test_async03"
+
+# Hard reset the wiredtiger repository
+git reset --hard && git clean -fdqx -e '*.tgz'
+cd build_posix
+echo ${BUILD_NUMBER} > JENKINS_BUILD
+sh reconf
+
+# Build wiredtiger, with python and without debugging
+../configure CFLAGS="-ggdb -O0 -Werror" --enable-silent-rules --enable-python
+make -j12
+
+# clone in or update the fault inject library
+if [ -d "faultinject" ]; then
+    cd faultinject
+    git reset --hard && git clean -fdqx -e '*.tgz'
+    git pull
+    git checkout master
+else
+    git clone https://github.com/wiredtiger/faultinject.git
+    cd faultinject
+    git checkout master
+fi
+
+# Build fault inject library
+cd dist && python gen_source.py && cd ..
+autoreconf --install
+./configure --with-debug --enable-trace
+make clean && make
+
+# Run fault inject test with sample python configuration
+cd build_posix
+cleanup() {
+    echo "Fault injection found a probable bug!"
+    cd ../
+    rm -f `ls -t jenkins*.tgz | sed '1,5d'`
+    tar czf $BUILD_TAG.tgz build_posix
+    exit 1
+}
+
+echo "$CONFIG_DATA" > CONFIG
+python ../faultinject/test/run_fi.py -c CONFIG -j 12 || cleanup
